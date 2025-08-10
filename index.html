@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TPE Manager HTML</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+</head>
+<body class="bg-gray-100 p-6">
+  <h1 class="text-3xl font-bold mb-4">TPE Manager (HTML)</h1>
+  <input type="file" id="excelFile" accept=".xlsx" class="mb-4" />
+  <div id="dashboard" class="grid grid-cols-2 gap-4 mb-6"></div>
+  <div id="tableContainer" class="overflow-x-auto bg-white rounded shadow"></div>
+
+  <script>
+    let data = [];
+    let stats = { completionRate: 0, sectors: {}, regions: {} };
+
+    document.getElementById('excelFile').addEventListener('change', handleFile);
+
+    function handleFile(e) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const wb = XLSX.read(evt.target.result, { type: 'binary' });
+        const ws = wb.Sheets['Etat0 '];
+        const jsonData = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        const headers = jsonData[1];
+        data = jsonData.slice(2).map(row => {
+          const obj = {};
+          headers.forEach((h, i) => obj[h] = row[i] || '');
+          return obj;
+        });
+        calculateStats();
+        renderDashboard();
+        renderTable();
+      };
+      reader.readAsBinaryString(file);
+    }
+
+    function calculateStats() {
+      const total = data.length;
+      const completed = data.filter(r => Object.values(r).every(v => v !== '')).length;
+      stats.completionRate = Math.round((completed / total) * 100);
+      stats.sectors = {};
+      stats.regions = {};
+      data.forEach(r => {
+        if (r['Secteur']) stats.sectors[r['Secteur']] = (stats.sectors[r['Secteur']] || 0) + 1;
+        if (r['Région']) stats.regions[r['Région']] = (stats.regions[r['Région']] || 0) + 1;
+      });
+    }
+
+    function renderDashboard() {
+      const dash = document.getElementById('dashboard');
+      dash.innerHTML = `
+        <div class='bg-white p-4 rounded shadow'>
+          <h2 class='text-lg font-semibold'>Taux de complétion</h2>
+          <p class='text-2xl font-bold'>${stats.completionRate}%</p>
+        </div>
+        <div id='sectorChart' class='bg-white p-4 rounded shadow'></div>
+        <div id='regionChart' class='bg-white p-4 rounded shadow col-span-2'></div>
+      `;
+      new ApexCharts(document.querySelector('#sectorChart'), {
+        chart: { type: 'bar', height: 300 },
+        series: [{ data: Object.values(stats.sectors) }],
+        xaxis: { categories: Object.keys(stats.sectors) },
+        title: { text: 'Répartition par secteur' }
+      }).render();
+      new ApexCharts(document.querySelector('#regionChart'), {
+        chart: { type: 'pie', height: 300 },
+        series: Object.values(stats.regions),
+        labels: Object.keys(stats.regions),
+        title: { text: 'Répartition par région' }
+      }).render();
+    }
+
+    function renderTable() {
+      const container = document.getElementById('tableContainer');
+      let table = `<table class='min-w-full border text-xs'><thead><tr>`;
+      Object.keys(data[0]).forEach(key => table += `<th class='border px-2 py-1'>${key}</th>`);
+      table += `<th>Actions</th></tr></thead><tbody>`;
+      data.forEach((row, i) => {
+        table += `<tr>`;
+        Object.keys(row).forEach(key => table += `<td class='border px-1 py-1'>${row[key]}</td>`);
+        table += `<td class='border px-1 py-1'><button class='text-blue-500' onclick='viewTPE(${i})'>Voir</button></td>`;
+        table += `</tr>`;
+      });
+      table += `</tbody></table>`;
+      container.innerHTML = table;
+    }
+
+    function viewTPE(index) {
+      const tpe = data[index];
+      let modal = `<div class='fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center'>
+        <div class='bg-white p-6 rounded shadow-lg w-2/3 max-h-screen overflow-y-auto'>
+          <h2 class='text-lg font-semibold mb-4'>Fiche TPE - ${tpe['Nom de l’entreprise']}</h2>`;
+      Object.keys(tpe).forEach(key => {
+        modal += `<div class='mb-2'><label class='block text-sm font-medium'>${key}</label>
+                  <input value='${tpe[key]}' class='w-full border px-2 py-1 text-sm'/></div>`;
+      });
+      modal += `<div class='mt-4 flex justify-end'><button class='bg-gray-300 px-4 py-1 rounded' onclick='closeModal()'>Fermer</button></div></div></div>`;
+      document.body.insertAdjacentHTML('beforeend', modal);
+    }
+
+    function closeModal() {
+      document.querySelector('.fixed').remove();
+    }
+  </script>
+</body>
+</html>
