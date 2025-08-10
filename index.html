@@ -4,13 +4,20 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>TPE Manager HTML</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    th { position: sticky; top: 0; background-color: #f3f4f6; }
+  </style>
 </head>
 <body class="bg-gray-100 p-6">
-  <h1 class="text-3xl font-bold mb-4">TPE Manager (HTML)</h1>
-  <input type="file" id="excelFile" accept=".xlsx" class="mb-4" />
+  <h1 class="text-3xl font-bold mb-4">📊 TPE Manager</h1>
+  <input type="text" id="searchInput" placeholder="🔍 Rechercher..." class="mb-4 px-3 py-2 border rounded w-full max-w-sm" />
+  
   <div id="dashboard" class="grid grid-cols-2 gap-4 mb-6"></div>
   <div id="tableContainer" class="overflow-x-auto bg-white rounded shadow"></div>
 
@@ -18,27 +25,28 @@
     let data = [];
     let stats = { completionRate: 0, sectors: {}, regions: {} };
 
-    document.getElementById('excelFile').addEventListener('change', handleFile);
+    // Charger automatiquement le fichier Excel depuis /public
+    window.addEventListener('DOMContentLoaded', () => {
+      fetch("Feuille%20de%20Route_Excel%20(1).xlsx") // encodage %20 pour espaces
+        .then(res => res.arrayBuffer())
+        .then(buffer => {
+          const wb = XLSX.read(buffer, { type: 'array' });
+          const ws = wb.Sheets['Etat0 '];
+          const jsonData = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+          const headers = jsonData[1];
+          data = jsonData.slice(2).map(row => {
+            const obj = {};
+            headers.forEach((h, i) => obj[h] = row[i] || '');
+            return obj;
+          });
+          calculateStats();
+          renderDashboard();
+          renderTable();
+        })
+        .catch(err => console.error("Erreur chargement Excel :", err));
+    });
 
-    function handleFile(e) {
-      const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        const wb = XLSX.read(evt.target.result, { type: 'binary' });
-        const ws = wb.Sheets['Etat0 '];
-        const jsonData = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-        const headers = jsonData[1];
-        data = jsonData.slice(2).map(row => {
-          const obj = {};
-          headers.forEach((h, i) => obj[h] = row[i] || '');
-          return obj;
-        });
-        calculateStats();
-        renderDashboard();
-        renderTable();
-      };
-      reader.readAsBinaryString(file);
-    }
+    document.getElementById('searchInput').addEventListener('input', renderTable);
 
     function calculateStats() {
       const total = data.length;
@@ -55,9 +63,9 @@
     function renderDashboard() {
       const dash = document.getElementById('dashboard');
       dash.innerHTML = `
-        <div class='bg-white p-4 rounded shadow'>
+        <div class='bg-white p-4 rounded shadow text-center'>
           <h2 class='text-lg font-semibold'>Taux de complétion</h2>
-          <p class='text-2xl font-bold'>${stats.completionRate}%</p>
+          <p class='text-2xl font-bold text-blue-600'>${stats.completionRate}%</p>
         </div>
         <div id='sectorChart' class='bg-white p-4 rounded shadow'></div>
         <div id='regionChart' class='bg-white p-4 rounded shadow col-span-2'></div>
@@ -77,35 +85,70 @@
     }
 
     function renderTable() {
+      const search = document.getElementById('searchInput').value.toLowerCase();
       const container = document.getElementById('tableContainer');
-      let table = `<table class='min-w-full border text-xs'><thead><tr>`;
-      Object.keys(data[0]).forEach(key => table += `<th class='border px-2 py-1'>${key}</th>`);
-      table += `<th>Actions</th></tr></thead><tbody>`;
-      data.forEach((row, i) => {
-        table += `<tr>`;
-        Object.keys(row).forEach(key => table += `<td class='border px-1 py-1'>${row[key]}</td>`);
-        table += `<td class='border px-1 py-1'><button class='text-blue-500' onclick='viewTPE(${i})'>Voir</button></td>`;
-        table += `</tr>`;
-      });
+      let table = `<table class='min-w-full border text-xs'><thead><tr><th>Actions</th>`;
+      Object.keys(data[0] || {}).forEach(key => table += `<th class='border px-2 py-1'>${key}</th>`);
+      table += `</tr></thead><tbody>`;
+      data
+        .filter(row => Object.values(row).some(val => val.toString().toLowerCase().includes(search)))
+        .forEach((row, i) => {
+          table += `<tr class="hover:bg-gray-50">`;
+          table += `<td class='border px-1 py-1'>
+                      <button class='bg-blue-500 text-white px-2 py-1 rounded text-xs' onclick='viewTPE(${i})'>Voir</button>
+                    </td>`;
+          Object.keys(row).forEach(key => table += `<td class='border px-1 py-1'>${row[key]}</td>`);
+          table += `</tr>`;
+        });
       table += `</tbody></table>`;
       container.innerHTML = table;
     }
 
     function viewTPE(index) {
       const tpe = data[index];
-      let modal = `<div class='fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center'>
+      let modal = `<div class='fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50'>
         <div class='bg-white p-6 rounded shadow-lg w-2/3 max-h-screen overflow-y-auto'>
           <h2 class='text-lg font-semibold mb-4'>Fiche TPE - ${tpe['Nom de l’entreprise']}</h2>`;
       Object.keys(tpe).forEach(key => {
         modal += `<div class='mb-2'><label class='block text-sm font-medium'>${key}</label>
-                  <input value='${tpe[key]}' class='w-full border px-2 py-1 text-sm'/></div>`;
+                  <input value='${tpe[key]}' onchange='updateTPE(${index}, "${key}", this.value)' class='w-full border px-2 py-1 text-sm'/></div>`;
       });
-      modal += `<div class='mt-4 flex justify-end'><button class='bg-gray-300 px-4 py-1 rounded' onclick='closeModal()'>Fermer</button></div></div></div>`;
+      modal += `<div class='mt-4 flex justify-between'>
+                  <button class='bg-red-500 text-white px-4 py-1 rounded' onclick='exportPDF(${index})'>Export PDF</button>
+                  <button class='bg-green-500 text-white px-4 py-1 rounded' onclick='saveExcel()'>Sauvegarder Excel</button>
+                  <button class='bg-gray-300 px-4 py-1 rounded' onclick='closeModal()'>Fermer</button>
+                </div></div></div>`;
       document.body.insertAdjacentHTML('beforeend', modal);
+    }
+
+    function updateTPE(index, key, value) {
+      data[index][key] = value;
     }
 
     function closeModal() {
       document.querySelector('.fixed').remove();
+    }
+
+    function saveExcel() {
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Etat0 ");
+      XLSX.writeFile(wb, "TPE_Mis_A_Jour.xlsx");
+    }
+
+    function exportPDF(index) {
+      const { jsPDF } = window.jspdf;
+      const tpe = data[index];
+      const doc = new jsPDF();
+      doc.setFontSize(16);
+      doc.text(`Fiche TPE: ${tpe["Nom de l’entreprise"] || ""}`, 10, 10);
+      let y = 20;
+      Object.entries(tpe).forEach(([key, value]) => {
+        doc.setFontSize(10);
+        doc.text(`${key}: ${value}`, 10, y);
+        y += 6;
+      });
+      doc.save(`${tpe["Nom de l’entreprise"] || "TPE"}.pdf`);
     }
   </script>
 </body>
